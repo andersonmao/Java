@@ -22,6 +22,14 @@ public class DataUtil {
 		return map;
 	}
 	
+	public static Map<String, String> toStringMap(Map<String, Object> map){
+		Map<String, String> myMap = new HashMap<String, String>();
+		for(String key: map.keySet()){
+			myMap.put(key, map.get(key).toString() );
+		}
+		return myMap;
+	}
+	
 	public static List<String> toUpperCase(List<String> valueList){
 		// [USE_UPPER_CASE_COLUMN_NAME]
 		if(valueList == null){
@@ -34,9 +42,9 @@ public class DataUtil {
 		return newList;
 	}
 	
-	public static Map<String, String> toUpperCase(Map<String, String> row){
+	public static Map<String, Object> toUpperCase(Map<String, Object> row){
 		// [USE_UPPER_CASE_COLUMN_NAME]
-		Map<String, String> newRow = new HashMap<String, String>();
+		Map<String, Object> newRow = new HashMap<String, Object>();
 		for(String key: row.keySet() ){
 			newRow.put(key.toUpperCase(), row.get(key) );
 		}

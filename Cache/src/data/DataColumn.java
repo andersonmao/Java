@@ -121,7 +121,11 @@ public class DataColumn {
 	}
 	
 	public static enum DataColumnType{
-		INTEGER, LONG, DOUBLE, STRING, DATE
+		INTEGER,
+		LONG,
+		DOUBLE,
+		STRING,
+		DATE // Date will use long timestamp value
 	}
 	
 	public static enum DataColumnOperator{
@@ -175,36 +179,69 @@ public class DataColumn {
 		}
 	}
 	
-	public static class DataColumnSort{
+	public static class DataColumnSortColumn{
 		public String columnName;
-		public boolean columnAsc;
-		public String secondColumnName;
-		public boolean secondColumnAsc;
-		
-		public DataColumnSort(String columnName, boolean columnAsc){
-			this.columnName = columnName;
-			if(this.columnName != null){// [USE_UPPER_CASE_COLUMN_NAME]
-				this.columnName = this.columnName.toUpperCase();
-			}
+		public Boolean columnAsc;
+	
+		public DataColumnSortColumn(String columnName, Boolean columnAsc){
+			this.columnName = columnName.toUpperCase();// [USE_UPPER_CASE_COLUMN_NAME]
 			this.columnAsc = columnAsc;
 		}
 		
-		public DataColumnSort(String columnName, boolean columnAsc, String secondColumnName, boolean secondColumnAsc){
-			this.columnName = columnName;
-			this.columnAsc = columnAsc;
-			this.secondColumnName = secondColumnName;
-			this.secondColumnAsc = secondColumnAsc;
-			if(this.columnName != null){// [USE_UPPER_CASE_COLUMN_NAME]
-				this.columnName = this.columnName.toUpperCase();
+		@Override
+		public String toString(){
+			return columnName+"_"+columnAsc;
+		}
+	}
+	
+	public static class DataColumnSort{
+		private List<DataColumnSortColumn> sortColumnList = new ArrayList<DataColumnSortColumn>();
+		
+		public DataColumnSort add(String columnName, Boolean columnAsc){
+			if(columnName != null){
+				DataColumnSortColumn sortColumn = new  DataColumnSortColumn(columnName, columnAsc);
+				sortColumnList.add(sortColumn);
 			}
-			if(this.secondColumnName != null){// [USE_UPPER_CASE_COLUMN_NAME]
-				this.secondColumnName = this.secondColumnName.toUpperCase();
+			return this;
+		}
+		
+		public DataColumnSort add(DataColumnSortColumn sortColumn){
+			sortColumnList.add(sortColumn);
+			return this;
+		}
+		
+		public List<DataColumnSortColumn> getSortColumnList(){
+			return sortColumnList;
+		}
+		
+		public DataColumnSort(){
+		}
+		
+		public DataColumnSort(String columnName, Boolean columnAsc){
+			if(columnName != null){
+				DataColumnSortColumn sortColumn = new  DataColumnSortColumn(columnName, columnAsc);
+				sortColumnList.add(sortColumn);
+			}
+		}
+		
+		public DataColumnSort(String columnName, Boolean columnAsc, String secondColumnName, Boolean secondColumnAsc){
+			if(columnName != null){
+				DataColumnSortColumn sortColumn = new  DataColumnSortColumn(columnName, columnAsc);
+				sortColumnList.add(sortColumn);
+			}
+			if(secondColumnName !=null){
+				DataColumnSortColumn sortColumn = new  DataColumnSortColumn(secondColumnName, secondColumnAsc);
+				sortColumnList.add(sortColumn);
 			}
 		}
 		
 		@Override
 		public String toString(){
-			return columnName+"_"+columnAsc+"_"+secondColumnName+"_"+secondColumnAsc;
+			StringBuilder sb = new StringBuilder();
+			for(DataColumnSortColumn sortColumn: sortColumnList){
+				sb.append(sortColumn.toString() );
+			}
+			return sb.toString();
 		}
 	}
 }

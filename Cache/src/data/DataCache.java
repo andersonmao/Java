@@ -13,14 +13,14 @@ public interface DataCache {
 	/**
 	 * Will delete all previous data for this tableName
 	 * @param tableName: unique name for the whole app.
-	 * For same business unit, client can add user id to make it unique. Example: LV_0001 (LV is unit, 0001 is user id) 
+	 * For same business unit, client can add user id to make it unique. Example: LV_0001 (LV is unit, 0001 is user id)
 	 */
-	void set(String tableName, String idColumnName, List<DataColumn> columnList, List<Map<String, String> > rowList) throws DataException;
+	void set(String tableName, String idColumnName, List<DataColumn> columnList, List<Map<String, Object> > rowList) throws DataException;
 	
 	/**
 	 * Get one row
 	 */
-	Map<String, String> get(String tableName, String id) throws DataException;
+	Map<String, Object> get(String tableName, String id) throws DataException;
 	
 	/**
 	 * Get page rows
@@ -28,14 +28,14 @@ public interface DataCache {
 	 * @param sort: null to sort by id
 	 * @param columnNameList: null to get all columns
 	 */
-	List<Map<String, String> > get(String tableName, int pageSize, int pageNumber, DataColumnCriteria criteria, DataColumnSort sort, List<String> columnNameList) throws DataException;
+	List<Map<String, Object> > get(String tableName, int pageSize, int pageNumber, DataColumnCriteria criteria, DataColumnSort sort, List<String> columnNameList) throws DataException;
 	
 	/**
 	 * Get page rows by SQL
 	 * @param sort: null to sort by id
 	 * @param columnNameList: null to get all columns
 	 */
-	List<Map<String, String> > get(String tableName, int pageSize, int pageNumber, String sql, DataColumnSort sort, List<String> columnNameList) throws DataException;
+	List<Map<String, Object> > get(String tableName, int pageSize, int pageNumber, String sql, DataColumnSort sort, List<String> columnNameList) throws DataException;
 	
 	/**
 	 * Get count for query criteria

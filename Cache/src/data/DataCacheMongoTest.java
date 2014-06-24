@@ -44,7 +44,7 @@ public class DataCacheMongoTest {
 		columnList.add(new DataColumn("ADDRESS", DataColumnType.STRING) );
 		columnList.add(new DataColumn("CREATE", DataColumnType.DATE) );
 		
-		List<Map<String, String> > rowList = new ArrayList<Map<String, String> >();
+		List<Map<String, Object> > rowList = new ArrayList<Map<String, Object> >();
 		addUser(rowList, "1", "UserA", "30", "LianHuaA", "20140620");
 		addUser(rowList, "2", "UserB", "40", "LianHuaB", "20140620");
 		addUser(rowList, "3", "UserC", "50", "LianHuaC", "20140620");
@@ -54,23 +54,23 @@ public class DataCacheMongoTest {
 	
 	public void queryOne(){
 		log("Get user 1:");
-		Map<String, String> userGet = cache.get(tableName, "1");
+		Map<String, Object> userGet = cache.get(tableName, "1");
 		for(String k: userGet.keySet() ){
-			String v = userGet.get(k);
+			String v = (String)userGet.get(k);
 			log("  "+k+"="+v);
 		}
 	}
 	
 	public void querySql(){
 		String sql = "name not like 'userb' and age >= 40";
-		List<Map<String, String> > rowList = cache.get(tableName, 10, 0, sql, null, null);
-		for(Map<String, String> row: rowList){
+		List<Map<String, Object> > rowList = cache.get(tableName, 10, 0, sql, null, null);
+		for(Map<String, Object> row: rowList){
 			log("get: "+row.toString() );
 		}
 	}
 	
-	private void addUser(List<Map<String, String> > rowList, String pk, String name, String age, String address, String create){
-		Map<String, String> user = new HashMap<String, String>();
+	private void addUser(List<Map<String, Object> > rowList, String pk, String name, String age, String address, String create){
+		Map<String, Object> user = new HashMap<String, Object>();
 		user.put("PK", pk);
 		user.put("NAME", name);
 		user.put("AGE", age);

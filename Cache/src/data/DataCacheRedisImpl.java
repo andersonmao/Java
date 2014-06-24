@@ -13,12 +13,14 @@ import java.util.Set;
 import org.apache.log4j.Logger;
 
 import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.Pipeline;
 import redis.clients.jedis.Response;
 import data.DataColumn.DataColumnCriteria;
 import data.DataColumn.DataColumnCriterion;
 import data.DataColumn.DataColumnOperator;
 import data.DataColumn.DataColumnSort;
+import data.DataColumn.DataColumnSortColumn;
 import data.DataColumn.DataColumnType;
 import data.DataSql.DataSqlNode;
 import data.DataSql.DataSqlOperator;
@@ -38,15 +40,24 @@ public class DataCacheRedisImpl implements DataCache {
 	
 	private static final int REDIS_PIPELINE_BATCH_SIZE = 1000;
 	
-	private Jedis jedis = null;
-	public void setJedis(Jedis jedis){
-		this.jedis = jedis;
+	private JedisPool jedisPool = null;
+	public void setJedisPool(JedisPool jedisPool){
+		this.jedisPool = jedisPool;
+	}
+	
+	private Jedis jedisFromPool = null;
+	private synchronized Jedis getJedis(){
+		if(jedisFromPool == null){
+			jedisFromPool = jedisPool.getResource();
+		}
+		return jedisFromPool;
 	}
 	
 	private Map<String, DataTable> dataTableCache = new HashMap<String, DataTable>();
 
 	@Override
-	public void set(String tableName, String idColumnName, List<DataColumn> columnList, List<Map<String, String>> rowList) throws DataException {
+	public void set(String tableName, String idColumnName, List<DataColumn> columnList, List<Map<String, Object>> rowList) throws DataException {
+		Jedis jedis = getJedis();
 		try{
 			debug("set: begin: table="+tableName);
 			DataTable dataTable = new DataTable(tableName, idColumnName, columnList);
@@ -84,12 +95,12 @@ public class DataCacheRedisImpl implements DataCache {
 			}
 			// Loop
 			int count = 0;
-			for(Map<String, String> row: rowList){
+			for(Map<String, Object> row: rowList){
 				// [USE_UPPER_CASE_COLUMN_NAME]
-				row = toUpperCase(row);
+				row = DataUtil.toUpperCase(row);
 				//
 				String id = dataTable.getId(row);
-				p.hmset(dataTable.getKey(id), row);
+				p.hmset(dataTable.getKey(id), DataUtil.toStringMap(row) );
 				idList.add(id);
 				
 				for(int i=0; i< columnSize; i++){
@@ -97,7 +108,10 @@ public class DataCacheRedisImpl implements DataCache {
 					Map<String, String> hash = hashList.get(i);
 					String colName = col.getName();
 					DataColumnType type = col.getType();
-					String value = row.get(colName);
+					String value = "";
+					if(row.get(colName) !=null){
+						value = row.get(colName).toString();
+					}
 					// Save String to HashSet; Save Number/Data to HashSet and SortedSet
 					if(type.equals(DataColumnType.STRING) ){
 						if(value==null){
@@ -106,14 +120,10 @@ public class DataCacheRedisImpl implements DataCache {
 						hash.put(id, value);
 					}else{
 						Double factor = null;
-						if(value==null){
+						if(value==null || value.equals("")){
 							value = "0";
 						}
-						if(type.equals(DataColumnType.LONG) || type.equals(DataColumnType.DOUBLE)){
-							factor = Double.parseDouble(value);
-						}else{ // DataColumnType.DATE
-							factor = Double.parseDouble(value);
-						}
+						factor = Double.parseDouble(value);
 						hash.put(id, factor.toString() );
 						Map<String, Double> index = indexMap.get(colName);
 						index.put(id, factor);
@@ -130,7 +140,7 @@ public class DataCacheRedisImpl implements DataCache {
 			p = null;
 			// Save loop result. Use new jedis pipeline
 			debug("set: index: table="+tableName);
-			jedis.rpush(idKey, toArray(idList) );
+			jedis.rpush(idKey, DataUtil.toArray(idList) );
 			for(int i=0; i< columnSize; i++){
 				String hashKey = dataTable.getHashKey(columnList.get(i).getName() );
 				Map<String, String> hash = hashList.get(i);
@@ -148,14 +158,15 @@ public class DataCacheRedisImpl implements DataCache {
 	}
 
 	@Override
-	public Map<String, String> get(String tableName, String id) throws DataException {
+	public Map<String, Object> get(String tableName, String id) throws DataException {
+		Jedis jedis = getJedis();
 		DataTable dataTable = getDataTable(tableName);
 		Map<String, String> obj = jedis.hgetAll(dataTable.getKey(id) );
-		return obj;
+		return convertToObjectRow(dataTable, obj);
 	}
 
 	@Override
-	public List<Map<String, String> > get(String tableName, int pageSize, int pageNumber, DataColumnCriteria criteria, DataColumnSort sort, List<String> columnNameList) throws DataException {
+	public List<Map<String, Object> > get(String tableName, int pageSize, int pageNumber, DataColumnCriteria criteria, DataColumnSort sort, List<String> columnNameList) throws DataException {
 		if(criteria == null){
 			criteria = new DataColumnCriteria();
 		}
@@ -163,16 +174,42 @@ public class DataCacheRedisImpl implements DataCache {
 	}
 	
 	@Override
-	public List<Map<String, String> > get(String tableName, int pageSize, int pageNumber, String sql, DataColumnSort sort, List<String> columnNameList) throws DataException{
+	public List<Map<String, Object> > get(String tableName, int pageSize, int pageNumber, String sql, DataColumnSort sort, List<String> columnNameList) throws DataException{
 		if(sql == null){
 			sql = "";
 		}
 		return getList(tableName, pageSize, pageNumber, null, sql, sort, columnNameList );
 	}
 	
-	private List<Map<String, String> > getList(String tableName, int pageSize, int pageNumber, DataColumnCriteria criteria, String sql, DataColumnSort sort, List<String> columnNameList) throws DataException {
+	private List<Map<String, Object> > convertToObjectList(DataTable dataTable, List<Map<String, String>> rowList){
+		if(rowList == null){
+			return null;
+		}
+		List<Map<String, Object> > myList = new ArrayList<Map<String, Object> >(rowList.size() );
+		for(Map<String, String> row: rowList){
+			myList.add(convertToObjectRow(dataTable, row) );
+		}
+		//
+		return myList;
+	}
+	
+	private Map<String, Object> convertToObjectRow(DataTable dataTable, Map<String, String> row){
+		Map<String, Object> myRow = new HashMap<String, Object>();
+		for(DataColumn col: dataTable.getColumnList() ){
+			String columnName = col.getName();
+			if(row.containsKey(columnName) ){
+				Object value = DataColumn.parseDataColumnValue(col.getType(), row.get(columnName) );
+				myRow.put(columnName, value);
+			}
+		}
+		//
+		return myRow;
+	}
+	
+	private List<Map<String, Object> > getList(String tableName, int pageSize, int pageNumber, DataColumnCriteria criteria, String sql, DataColumnSort sort, List<String> columnNameList) throws DataException {
+		Jedis jedis = getJedis();
 		DataTable dataTable = getDataTable(tableName);
-		columnNameList = toUpperCase(columnNameList);// [USE_UPPER_CASE_COLUMN_NAME]
+		columnNameList = DataUtil.toUpperCase(columnNameList);// [USE_UPPER_CASE_COLUMN_NAME]
 		// Default
 		if(sort==null){
 			sort = new DataColumnSort(dataTable.getIdColumnName(), true);
@@ -205,14 +242,25 @@ public class DataCacheRedisImpl implements DataCache {
 				debug("getList: sql=" + ((dataSqlNode==null) ? "" : dataSqlNode.toString() ) );
 				idList = query(dataTable, dataSqlNode);
 			}
-			// Run Sort
-			String columnName = dataTable.getIdColumnName(); 
-			if(dataTable.isColumn(sort.columnName) ){
-				columnName = sort.columnName;
+			// Run Sort (Only support two columns)
+			List<DataColumnSortColumn> sortColumnList = sort.getSortColumnList();
+			String columnName = dataTable.getIdColumnName();
+			Boolean columnAsc = true;
+			if(sortColumnList.size() >=1){
+				DataColumnSortColumn firstSortColumn = sortColumnList.get(0);
+				if(dataTable.isColumn(firstSortColumn.columnName) ){
+					columnName = firstSortColumn.columnName;
+					columnAsc = firstSortColumn.columnAsc;
+				}
 			}
 			String secondColumnName = null;
-			if(dataTable.isColumn(sort.secondColumnName) && !columnName.equals(sort.secondColumnName) ){
-				secondColumnName = sort.secondColumnName;
+			Boolean secondColumnAsc = true;
+			if(sortColumnList.size() >=2){
+				DataColumnSortColumn secondSortColumn = sortColumnList.get(1);
+				if(dataTable.isColumn(secondSortColumn.columnName) ){
+					secondColumnName = secondSortColumn.columnName;
+					secondColumnAsc = secondSortColumn.columnAsc;
+				}
 			}
 			//
 			String hashKey = dataTable.getHashKey(columnName);
@@ -226,13 +274,13 @@ public class DataCacheRedisImpl implements DataCache {
 				secondColumnValueMap = getHash(secondHashKey, idList);
 				secondColumnType = dataTable.getColumnType(secondColumnName);
 			}
-			DataComparator comp = new DataComparator(columnValueMap, columnType, sort.columnAsc, secondColumnValueMap, secondColumnType, sort.secondColumnAsc);
+			DataComparator comp = new DataComparator(columnValueMap, columnType, columnAsc, secondColumnValueMap, secondColumnType, secondColumnAsc);
 			Collections.sort(idList, comp);
 			// Save sort cache
 			jedis.set(sortNameKey, sortName);
 			jedis.del(sortListKey);
 			if(idList.size() >0){
-				String[] idArray = toArray(idList);
+				String[] idArray = DataUtil.toArray(idList);
 				jedis.rpush(sortListKey, idArray);
 			}
 		}
@@ -245,7 +293,7 @@ public class DataCacheRedisImpl implements DataCache {
 		List<String> pageIdList = idList.subList(pageStart, pageEnd);
 		List<Map<String, String> > result = get(dataTable, pageIdList, columnNameList);
 		//
-		return result;
+		return convertToObjectList(dataTable, result);
 	}
 	
 	@Override
@@ -304,6 +352,7 @@ public class DataCacheRedisImpl implements DataCache {
 	private List<Map<String, String> > get(DataTable dataTable, List<String> idList, List<String> columnNameList){
 		List<Map<String, String> > result = new ArrayList<Map<String, String> >();
 		//
+		Jedis jedis = getJedis();
 		if(columnNameList == null){ // Get all columns
 			List<Response<Map<String, String>> > respList = new ArrayList<Response<Map<String, String>> >(idList.size() );
 			Pipeline p = jedis.pipelined();
@@ -322,13 +371,13 @@ public class DataCacheRedisImpl implements DataCache {
 			Pipeline p = jedis.pipelined();
 			for(String id: idList){
 				String key = dataTable.getKey(id);
-				Response<List<String> > r = p.hmget(key, toArray(columnNameList) );
+				Response<List<String> > r = p.hmget(key, DataUtil.toArray(columnNameList) );
 				respList.add(r);
 			}
 			p.sync();
 			for(Response<List<String> > r: respList){
 				List<String> valueList = r.get();
-				result.add(toMap(columnNameList, valueList) );
+				result.add(DataUtil.toMap(columnNameList, valueList) );
 			}
 		}
 		//
@@ -341,11 +390,13 @@ public class DataCacheRedisImpl implements DataCache {
 	 */
 	private Map<String, String> getHash(String hashKey, List<String> idList){
 		Map<String, String> columnValueMap = new HashMap<String, String>();
+		//
+		Jedis jedis = getJedis();
 		if(idList==null){
 			columnValueMap = jedis.hgetAll(hashKey);
 		}else if(idList.size()>0){
 			// Use idList to minimize the search scope
-			String[] idArray = toArray(idList);
+			String[] idArray = DataUtil.toArray(idList);
 			List<String> valueList = jedis.hmget(hashKey, idArray);
 			columnValueMap = new HashMap<String, String>(idList.size() );
 			for(int i=0; i<idList.size(); i++){
@@ -353,40 +404,6 @@ public class DataCacheRedisImpl implements DataCache {
 			}
 		}
 		return columnValueMap;
-	}
-	
-	private static String[] toArray(List<String> list){
-		String[] array = list.toArray(new String[0]);
-		return array;
-	}
-	
-	private static Map<String, String> toMap(List<String> keyList, List<String> valueList){
-		Map<String, String> map = new HashMap<String, String>();
-		for(int i=0; i<keyList.size(); i++){
-			map.put(keyList.get(i), valueList.get(i) );
-		}
-		return map;
-	}
-	
-	private static List<String> toUpperCase(List<String> valueList){
-		// [USE_UPPER_CASE_COLUMN_NAME]
-		if(valueList == null){
-			return valueList;
-		}
-		List<String> newList = new ArrayList<String>(valueList.size() );
-		for(String s: valueList){
-			newList.add(s.toUpperCase() );
-		}
-		return newList;
-	}
-	
-	private static Map<String, String> toUpperCase(Map<String, String> row){
-		// [USE_UPPER_CASE_COLUMN_NAME]
-		Map<String, String> newRow = new HashMap<String, String>();
-		for(String key: row.keySet() ){
-			newRow.put(key.toUpperCase(), row.get(key) );
-		}
-		return newRow;
 	}
 	
 	private Set<String> findNumber(DataTable dataTable, DataColumnCriterion criterion, Set<String> andIdList){
@@ -425,6 +442,7 @@ public class DataCacheRedisImpl implements DataCache {
 	private Set<String> findNumberByRange(DataTable dataTable, String columnName, Double rangeStart, Double rangeEnd, boolean isInclusive){
 		String indexKey = dataTable.getIndexKey(columnName);
 		Set<String> result = null;
+		Jedis jedis = getJedis();
 		if(isInclusive){
 			result = jedis.zrangeByScore(indexKey, rangeStart, rangeEnd);
 		}else{
@@ -489,6 +507,7 @@ public class DataCacheRedisImpl implements DataCache {
 	 * @see query()
 	 */
 	private long queryCount(DataTable dataTable, List<DataColumnCriterion> criterionList){
+		Jedis jedis = getJedis();
 		// Return all if no criteria
 		if(criterionList.size() ==0){
 			return jedis.llen(dataTable.getIdListKey() );
@@ -511,6 +530,7 @@ public class DataCacheRedisImpl implements DataCache {
 	 * @see querySize()
 	 */
 	private List<String> query(DataTable dataTable, List<DataColumnCriterion> criterionList){
+		Jedis jedis = getJedis();
 		// Return all if no criteria
 		if(criterionList== null || criterionList.size() ==0){
 			List<String> list = jedis.lrange(dataTable.getIdListKey(), 0, -1);
@@ -565,7 +585,7 @@ public class DataCacheRedisImpl implements DataCache {
 		jedis.set(queryNameKey, queryName);
 		jedis.del(queryListKey);
 		if(allResultList.size()>0){
-			String[] idArray = toArray(allResultList);
+			String[] idArray = DataUtil.toArray(allResultList);
 			jedis.rpush(queryListKey, idArray);
 		}
 		//
@@ -576,6 +596,7 @@ public class DataCacheRedisImpl implements DataCache {
 	 * @see query(DataTable, DataSqlNode)
 	 */
 	private long queryCount(DataTable dataTable, DataSqlNode dataSqlNode){
+		Jedis jedis = getJedis();
 		// Return all if no criteria
 		if(dataSqlNode == null){
 			return jedis.llen(dataTable.getIdListKey() );
@@ -597,6 +618,7 @@ public class DataCacheRedisImpl implements DataCache {
 	 * Query with cache
 	 */
 	private List<String> query(DataTable dataTable, DataSqlNode dataSqlNode){
+		Jedis jedis = getJedis();
 		// Return all if no criteria
 		if(dataSqlNode== null){
 			List<String> list = jedis.lrange(dataTable.getIdListKey(), 0, -1);
@@ -618,7 +640,7 @@ public class DataCacheRedisImpl implements DataCache {
 		jedis.set(queryNameKey, queryName);
 		jedis.del(queryListKey);
 		if(allResultList.size()>0){
-			String[] idArray = toArray(allResultList);
+			String[] idArray = DataUtil.toArray(allResultList);
 			jedis.rpush(queryListKey, idArray);
 		}
 		//
@@ -660,24 +682,24 @@ public class DataCacheRedisImpl implements DataCache {
 	private static class DataComparator implements Comparator<String>{
 		private Map<String, String> columnValueMap;
 		private DataColumnType columnType;
-		private boolean columnAsc;
+		private Boolean columnAsc;
 		
 		private Map<String, String> secondColumnValueMap;
 		private DataColumnType secondColumnType;
-		private boolean secondColumnAsc;
+		private Boolean secondColumnAsc;
 		@Override
 		public int compare(String id0, String id1) {
 			String value0 = columnValueMap.get(id0);
 			String value1 = columnValueMap.get(id1);
 			int cv = compare(value0, value1, columnType);
-			if(!columnAsc){
+			if(Boolean.FALSE.equals(columnAsc) ){
 				cv = - cv;
 			}
 			if(cv==0 && secondColumnValueMap!=null){
 				String secondValue0 = secondColumnValueMap.get(id0);
 				String secondValue1 = secondColumnValueMap.get(id1);
 				cv = compare(secondValue0, secondValue1, secondColumnType);
-				if(!secondColumnAsc){
+				if(Boolean.FALSE.equals(secondColumnAsc) ){
 					cv = - cv;
 				}
 			}

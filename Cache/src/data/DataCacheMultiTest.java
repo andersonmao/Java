@@ -6,7 +6,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import redis.clients.jedis.Jedis;
+import redis.clients.jedis.JedisPool;
 import data.DataColumn.DataColumnCriteria;
 import data.DataColumn.DataColumnOperator;
 import data.DataColumn.DataColumnSort;
@@ -18,7 +18,7 @@ import data.DataColumn.DataColumnType;
 public class DataCacheMultiTest {
 	DataCacheRedisImpl cache = new DataCacheRedisImpl();
 	{
-		cache.setJedis(new Jedis("192.168.9.220") );
+		cache.setJedisPool(new JedisPool("192.168.9.220") );
 	}
 	
 	String tableName = "MultiUser";
@@ -60,10 +60,10 @@ public class DataCacheMultiTest {
 		columnList.add(new DataColumn("other29", DataColumnType.STRING) );
 		columnList.add(new DataColumn("other30", DataColumnType.STRING) );
 		
-		List<Map<String, String> > rowList = new ArrayList<Map<String, String> >();
+		List<Map<String, Object> > rowList = new ArrayList<Map<String, Object> >();
 		int stepCount = count/10;
 		for(int i=0; i<count; i++){
-			Map<String, String> user = new HashMap<String, String>();
+			Map<String, Object> user = new HashMap<String, Object>();
 			user.put("PK", ""+i);
 			user.put("name", "User"+i);
 			user.put("age", ""+ (i % 100) );
@@ -89,10 +89,10 @@ public class DataCacheMultiTest {
 			.add("address", DataColumnOperator.LIKE, "ShangHaiA")
 			.add("age", DataColumnOperator.GE, "50");
 		DataColumnSort sort = new DataColumnSort("name", false);
-		List<Map<String, String> > queryList = cache.get(tableName, 10, 0, criteria, sort, null);
+		List<Map<String, Object> > queryList = cache.get(tableName, 10, 0, criteria, sort, null);
 		log("Query: size="+queryList.size() );
 		if(queryList.size()>0){
-			for(Map<String, String> user: queryList){
+			for(Map<String, Object> user: queryList){
 				log("Query: id="+user.get("PK")+", name="+user.get("NAME"));
 			}
 		}

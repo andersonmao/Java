@@ -57,8 +57,8 @@ public class DataTable {
 		return columnTypeMap.get(columnName);
 	}
 	
-	public String getId(Map<String, String> row){
-		return row.get(idColumnName);
+	public String getId(Map<String, Object> row){
+		return (String)row.get(idColumnName);
 	}
 	
 	public List<DataColumn> getColumnList(){

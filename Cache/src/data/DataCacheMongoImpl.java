@@ -25,6 +25,7 @@ import data.DataColumn.DataColumnCriteria;
 import data.DataColumn.DataColumnCriterion;
 import data.DataColumn.DataColumnOperator;
 import data.DataColumn.DataColumnSort;
+import data.DataColumn.DataColumnSortColumn;
 import data.DataColumn.DataColumnType;
 import data.DataSql.DataSqlNode;
 import data.DataSql.DataSqlOperator;
@@ -63,7 +64,7 @@ public class DataCacheMongoImpl implements DataCache {
 	}
 
 	@Override
-	public void set(String tableName, String idColumnName, List<DataColumn> columnList, List<Map<String, String>> rowList) throws DataException {
+	public void set(String tableName, String idColumnName, List<DataColumn> columnList, List<Map<String, Object>> rowList) throws DataException {
 		debug("set: begin: table="+tableName);
 		try{
 			DataTable dataTable = new DataTable(tableName, idColumnName, columnList);
@@ -77,32 +78,23 @@ public class DataCacheMongoImpl implements DataCache {
 			int stepSize = rowListSize / 10;
 			List<DBObject> batchList = new ArrayList<DBObject>(INSERT_BATCH_SIZE);
 			for(int i=0; i< rowListSize; i++){
-				Map<String, String> row = rowList.get(i);
+				Map<String, Object> row = rowList.get(i);
 				// [USE_UPPER_CASE_COLUMN_NAME]
 				row = DataUtil.toUpperCase(row);
-				Map<String, Object> newRow = new HashMap<String, Object>();
+				Map<String, Object> myRow = new HashMap<String, Object>();
 				for(DataColumn column: dataTable.getColumnList() ){
 					DataColumnType type = column.getType();
 					String columnName = column.getName();
-					String value = row.get(columnName);
+					Object value = row.get(columnName);
 					if(value !=null){
-						Object valueObject = value;
-						if(!dataTable.isStringColumn(columnName) ){
-							if(DataColumnType.LONG.equals(type) ){
-								valueObject = Long.valueOf(value);
-							}else if(DataColumnType.DOUBLE.equals(type) ){
-								valueObject = Double.valueOf(value);
-							}else{
-								valueObject = Long.valueOf(value);
-							}
-						}
-						newRow.put(columnName, valueObject);
+						Object myValue = DataColumn.convertDataColumnValue(type, value);
+						myRow.put(columnName, myValue);
 					}
 				}
 				//
 				String id = dataTable.getId(row);
-				DBObject obj = new BasicDBObject();
-				obj.putAll(newRow);
+				BasicDBObject obj = new BasicDBObject();
+				obj.putAll(myRow);
 				obj.put("_id", id);
 				// Use batch insert instead of insert one by one
 				batchList.add(obj);
@@ -138,15 +130,15 @@ public class DataCacheMongoImpl implements DataCache {
 	}
 
 	@Override
-	public Map<String, String> get(String tableName, String id) throws DataException {
-		Map<String, String> row = null;
+	public Map<String, Object> get(String tableName, String id) throws DataException {
+		Map<String, Object> row = null;
 		try{
 			DataTable dataTable = getDataTable(tableName);
 			DBCollection coll = getCollection(tableName);
 			BasicDBObject queryObj = new BasicDBObject();
 			queryObj.put("_id", id);
 			DBObject obj =coll.findOne(queryObj);
-			row = getRow(dataTable, obj);
+			row = getRow(dataTable, obj, null);
 		}catch(MongoException ex){
 			throw new DataException(ex);
 		}
@@ -154,7 +146,7 @@ public class DataCacheMongoImpl implements DataCache {
 	}
 
 	@Override
-	public List<Map<String, String>> get(String tableName, int pageSize, int pageNumber, DataColumnCriteria criteria, DataColumnSort sort, List<String> columnNameList) throws DataException {
+	public List<Map<String, Object>> get(String tableName, int pageSize, int pageNumber, DataColumnCriteria criteria, DataColumnSort sort, List<String> columnNameList) throws DataException {
 		DataSqlNode dataSqlNode = null;
 		if(criteria != null){
 			dataSqlNode = DataSql.createNode(criteria.getCriterionList(), DataSqlOperator.AND);
@@ -163,7 +155,7 @@ public class DataCacheMongoImpl implements DataCache {
 	}
 
 	@Override
-	public List<Map<String, String>> get(String tableName, int pageSize, int pageNumber, String sql, DataColumnSort sort, List<String> columnNameList) throws DataException {
+	public List<Map<String, Object>> get(String tableName, int pageSize, int pageNumber, String sql, DataColumnSort sort, List<String> columnNameList) throws DataException {
 		DataSqlNode dataSqlNode = DataSql.parseSql(sql);
 		return get(tableName, pageSize, pageNumber, dataSqlNode, sort, columnNameList);
 	}
@@ -183,16 +175,17 @@ public class DataCacheMongoImpl implements DataCache {
 		return count(tableName, dataSqlNode);
 	}
 	
-	private List<Map<String, String>> get(String tableName, int pageSize, int pageNumber, DataSqlNode dataSqlNode, DataColumnSort sort, List<String> columnNameList) throws DataException {
-		List<Map<String, String> > rowList = new ArrayList<Map<String, String> >();
+	private List<Map<String, Object>> get(String tableName, int pageSize, int pageNumber, DataSqlNode dataSqlNode, DataColumnSort sort, List<String> columnNameList) throws DataException {
+		List<Map<String, Object> > rowList = new ArrayList<Map<String, Object> >();
 		try{
 			DataTable dataTable = getDataTable(tableName);
 			DBCollection coll = getCollection(tableName);
 			DBObject queryObject = getSqlNodeQueryObject(dataTable, dataSqlNode);
 			if(queryObject!=null){
-				debug("queryObject: "+queryObject.toString() );
+				debug("get: query: "+queryObject.toString() );
 			}
 			// Column List
+			columnNameList = DataUtil.toUpperCase(columnNameList);// [USE_UPPER_CASE_COLUMN_NAME]
 			DBObject columnListObject = null;
 			if(columnNameList!=null && columnNameList.size()>0){
 				columnListObject = new BasicDBObject();
@@ -207,13 +200,12 @@ public class DataCacheMongoImpl implements DataCache {
 			// Sort
 			if(sort!=null){
 				BasicDBObject sortObject = new BasicDBObject();
-				if(dataTable.isColumn(sort.columnName) ){
-					sortObject.append(sort.columnName, sort.columnAsc ? 1 : -1);
+				for(DataColumnSortColumn sortColumn: sort.getSortColumnList() ){
+					if(dataTable.isColumn(sortColumn.columnName) ){
+						sortObject.append(sortColumn.columnName, (!Boolean.FALSE.equals(sortColumn.columnAsc) ) ? 1 : -1);
+					}
 				}
-				if(dataTable.isColumn(sort.secondColumnName) ){
-					sortObject.append(sort.secondColumnName, sort.secondColumnAsc ? 1 : -1);
-				}
-				debug("sort: "+sortObject);
+				debug("get: sort: "+sortObject);
 				dbCursor.sort(sortObject);
 			}
 			// Page
@@ -224,7 +216,7 @@ public class DataCacheMongoImpl implements DataCache {
 			// Get Result
 			while(dbCursor.hasNext() ){
 				DBObject obj = dbCursor.next();
-				rowList.add(getRow(dataTable, obj) );
+				rowList.add(getRow(dataTable, obj, columnNameList) );
 			}
 		}catch(MongoException ex){
 			throw new DataException(ex);
@@ -247,12 +239,25 @@ public class DataCacheMongoImpl implements DataCache {
 		}
 	}
 	
-	private Map<String, String> getRow(DataTable dataTable, DBObject object){
-		Map<String, String> row = new HashMap<String, String>();
-		for(DataColumn column: dataTable.getColumnList() ){
-			String columnName = column.getName();
-			Object valueObject = object.get(columnName);
-			row.put(columnName, valueObject == null ? "" : valueObject.toString() );
+	private Map<String, Object> getRow(DataTable dataTable, DBObject object, List<String> columnNameList){
+		Map<String, Object> row = new HashMap<String, Object>();
+		if(columnNameList==null || columnNameList.size() == 0){// Get all
+			for(DataColumn column: dataTable.getColumnList() ){
+				String columnName = column.getName();
+				Object valueObject = object.get(columnName);
+				if(valueObject != null){
+					row.put(columnName, valueObject);
+				}
+			}
+		}else{
+			for(String columnName: columnNameList){
+				if(dataTable.isColumn(columnName) ){
+					Object valueObject = object.get(columnName);
+					if(valueObject != null){
+						row.put(columnName, valueObject);
+					}
+				}
+			}
 		}
 		//
 		return row;
@@ -335,7 +340,7 @@ public class DataCacheMongoImpl implements DataCache {
 			}else if(DataColumnOperator.NOT_LIKE.equals(op) ){
 				object.put(columnName, new BasicDBObject("$not", Pattern.compile(value, Pattern.CASE_INSENSITIVE) ) );
 			}else{
-				throw new DataException("Invalid String operation '"+op.name()+"' for column '"+columnName+"'");
+				throw new DataException("Invalid String operator '"+op.name()+"' for column '"+columnName+"'");
 			}
 			return object;
 		}catch(PatternSyntaxException ex){
@@ -349,13 +354,9 @@ public class DataCacheMongoImpl implements DataCache {
 		DataColumnOperator op = criterion.operator;
 		Object value = null;
 		try{
-			if(DataColumnType.LONG.equals(dataTable.getColumnType(columnName) ) ){
-				value = Long.valueOf(criterion.value);
-			}else{
-				value = Double.valueOf(criterion.value);
-			}
+			value = DataColumn.parseDataColumnValue(dataTable.getColumnType(columnName), criterion.value);
 		}catch(NumberFormatException ex){
-			throw new DataException("Invalid Number value '"+criterion.value+"' for column '"+columnName+"'");
+			throw new DataException("Invalid value '"+criterion.value+"' for column '"+columnName+"' of type '"+dataTable.getColumnType(columnName)+"'");
 		}
 		if(DataColumnOperator.EQ.equals(op) ){
 			object.put(columnName, value);
@@ -370,7 +371,7 @@ public class DataCacheMongoImpl implements DataCache {
 		}else if(DataColumnOperator.LT.equals(op) ){
 			object.put(columnName, new BasicDBObject("$lt",value) );
 		}else{
-			throw new DataException("Invalid Number operator '"+op+"' for column '"+columnName+"'");
+			throw new DataException("Invalid operator '"+op+"' for column '"+columnName+"' of type '"+dataTable.getColumnType(columnName)+"'");
 		}
 		return object;
 	}

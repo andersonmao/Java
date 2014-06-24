@@ -5,6 +5,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import org.apache.log4j.Logger;
+
 import data.DataColumn.DataColumnCriterion;
 import data.DataColumn.DataColumnOperator;
 
@@ -12,8 +14,10 @@ import data.DataColumn.DataColumnOperator;
  * @author Anderson Mao, 2014-06-17
  */
 public class DataSql {
+	private static final Logger logger = Logger.getLogger(DataSql.class);
+	
 	private static void debug(String message){
-		//System.out.println((new Date()).toString()+": "+DataSql.class.getSimpleName()+": "+message);
+		logger.debug(message);
 	}
 	
 	private static final char CHAR_QUOTE       = '\'';
