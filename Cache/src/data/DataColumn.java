@@ -1,12 +1,28 @@
 package data;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.List;
 
 /**
  * @author Anderson Mao, 2014-06-13
  */
 public class DataColumn {
+	private static final SimpleDateFormat ISO_DATE_FORMAT_DAY    = new SimpleDateFormat("yyyy-MM-dd");
+	private static final SimpleDateFormat ISO_DATE_FORMAT_HOUR   = new SimpleDateFormat("yyyy-MM-dd HH");
+	private static final SimpleDateFormat ISO_DATE_FORMAT_MINUTE = new SimpleDateFormat("yyyy-MM-dd HH:mm");
+	private static final SimpleDateFormat ISO_DATE_FORMAT_SECOND = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+	private static final List<SimpleDateFormat> DATE_FORMAT_LIST = new ArrayList<SimpleDateFormat>();
+	static{
+		// The sequence is important. The parser will try one by one
+		DATE_FORMAT_LIST.add(ISO_DATE_FORMAT_SECOND);
+		DATE_FORMAT_LIST.add(ISO_DATE_FORMAT_MINUTE);
+		DATE_FORMAT_LIST.add(ISO_DATE_FORMAT_HOUR);
+		DATE_FORMAT_LIST.add(ISO_DATE_FORMAT_DAY);
+	}
+	
 	private String name;
 	private DataColumnType type;
 	
@@ -23,8 +39,89 @@ public class DataColumn {
 		return type;
 	}
 	
+	/**
+	 * Convert input Object to internal Object according to @param type
+	 * @see DataColumnType
+	 * @param value: Any type of Object from input
+	 */
+	public static Object convertDataColumnValue(DataColumnType type, Object value){
+		if(value==null){
+			return null;
+		}
+		Object myValue = value.toString();
+		if(DataColumnType.INTEGER.equals(type) ){
+			if(!(value instanceof Integer) ){
+				myValue = Integer.valueOf(value.toString() );
+			}
+		}else if(DataColumnType.LONG.equals(type) ){
+			if(!(value instanceof Long) ){
+				myValue = Long.valueOf(value.toString() );
+			}
+		}else if(DataColumnType.DOUBLE.equals(type) ){
+			if(!(value instanceof Double) ){
+				myValue = Double.valueOf(value.toString() );
+			}
+		}else if(DataColumnType.DATE.equals(type) ){
+			myValue = parseDate(value);
+		}
+		//
+		return myValue;
+	}
+	
+	/**
+	 * Convert string to Object according to @param type
+	 * @see DataColumnType
+	 */
+	public static Object parseDataColumnValue(DataColumnType type, String value){
+		if(value == null){
+			return null;
+		}
+		Object myValue = value;
+		if(DataColumnType.INTEGER.equals(type) ){
+			myValue = Integer.valueOf(value);
+		}else if(DataColumnType.LONG.equals(type) ){
+			myValue = Long.valueOf(value);
+		}else if(DataColumnType.DOUBLE.equals(type) ){
+			myValue = Double.valueOf(value);
+		}else if(DataColumnType.DATE.equals(type) ){
+			myValue = parseDate(value);
+		}
+		//
+		return myValue;
+	}
+	
+	private static Long parseDate(Object value){
+		Long myValue = null;
+		if(value instanceof Long){
+			myValue = (Long) value;
+		}else if(value instanceof Date){
+			myValue = ((Date)value).getTime();
+		}else{
+			String s = value.toString();
+			Date date = null;
+			for(SimpleDateFormat format: DATE_FORMAT_LIST){
+				try{
+					date = format.parse(s);
+					break;
+				}catch(ParseException ex){
+					// continue
+				}
+			}
+			if(date != null){
+				myValue = date.getTime();
+			}else{
+				try{
+					myValue = Long.valueOf(value.toString() );
+				}catch(NumberFormatException ex){
+					throw new DataException("Can not parse Date value from '"+value.toString()+"'");
+				}
+			}
+		}
+		return myValue;
+	}
+	
 	public static enum DataColumnType{
-		LONG, DOUBLE, STRING, DATE
+		INTEGER, LONG, DOUBLE, STRING, DATE
 	}
 	
 	public static enum DataColumnOperator{

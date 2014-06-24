@@ -16,6 +16,8 @@ public class DataSql {
 		//System.out.println((new Date()).toString()+": "+DataSql.class.getSimpleName()+": "+message);
 	}
 	
+	private static final char CHAR_QUOTE       = '\'';
+	private static final String TOKEN_QUOTE    = String.valueOf(CHAR_QUOTE);
 	private static final String TOKEN_NOT      = "NOT";
 	private static final String TOKEN_LIKE     = "LIKE";
 	private static final String TOKEN_NOT_LIKE = "NOTLIKE";
@@ -111,17 +113,29 @@ public class DataSql {
 			return root;
 		}
 		debug("parse: separate");
-		String[] sArray = sql.split("\\s+");
+		// Quote has high priority
+		List<String> quoteList = parseQuoteList(sql);
+		debug("quote: "+quoteList.toString() );
 		List<String> tokenList = new ArrayList<String>();
-		for(String s: sArray){
-			List<String> sList = separate(s);
-			tokenList.addAll(sList);
+		for(String qs: quoteList){
+			if(qs.startsWith(TOKEN_QUOTE) ){
+				tokenList.add(qs);
+			}else{
+				String[] sArray = qs.split("\\s+");
+				for(String s: sArray){
+					if(s.equals("") ){
+						continue;
+					}
+					List<String> sList = separate(s);
+					tokenList.addAll(sList);
+				}
+			}
 		}
 		debug("parse: tokens: "+tokenList.toString() );
 		// Convert all tokens to upper case except string enclosed by ''
 		List<String> upperTokenList = new ArrayList<String>();
 		for(String s: tokenList){
-			if(s.indexOf("'")>=0){
+			if(s.indexOf(TOKEN_QUOTE)>=0){
 				upperTokenList.add(s);
 			}else{
 				upperTokenList.add(s.toUpperCase() );
@@ -155,6 +169,44 @@ public class DataSql {
 		}
 		//
 		return dataSqlNode;
+	}
+	
+	/**
+	 * Separate into quote string '' or string without quote
+	 */
+	private static List<String> parseQuoteList(String value){
+		List<String> tokenList = new ArrayList<String>();
+		int strPos = 0;
+		int quotePos = -1;
+		int len = value.length();
+		for(int i=0; i<len; i++){
+			char c = value.charAt(i);
+			if(c == CHAR_QUOTE){
+				if(quotePos >=0){
+					String s = value.substring(quotePos, i+1);
+					tokenList.add(s);
+					quotePos = -1;
+					strPos = i+1;
+				}else{
+					if(i > strPos){
+						String s = value.substring(strPos, i);
+						tokenList.add(s);
+					}
+					quotePos = i;
+				}
+			}
+		}
+		// Last
+		if(quotePos >=0){
+			throw new DataException("Invalid quote '' in string");
+		}else{
+			if(len > strPos){
+				String s = value.substring(strPos, len);
+				tokenList.add(s);
+			}
+		}
+		//
+		return tokenList;
 	}
 	
 	/**
@@ -263,15 +315,15 @@ public class DataSql {
 		try{
 			op = DataSqlOperator.valueOf(token);
 			return op;
-		}catch(Exception ex){
+		}catch(IllegalArgumentException ex){
 			throw new DataException("Can not find AND/OR from token "+token);
 		}
 	}
 	
 	private static String getTokenValue(String token){
 		String value = null;
-		if(token.indexOf("'")>=0){
-			if(token.indexOf("'")==0 && token.length()>=2 && token.lastIndexOf("'") == (token.length()-1) ){
+		if(token.indexOf(TOKEN_QUOTE)>=0){
+			if(token.indexOf(TOKEN_QUOTE)==0 && token.length()>=2 && token.lastIndexOf(TOKEN_QUOTE) == (token.length()-1) ){
 				value = token.substring(1, token.length()-1 );
 				return value;
 			}
