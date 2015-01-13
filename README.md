@@ -7,6 +7,6 @@ Data cache implementation with MongoDB or Redis to save simple DB table rows in 
 * Support simple SQL like query syntax "LIKE, NOT LIKE, ==, <>, >, >=, <, <=".
 * Support pager
 
-## LogBeanStorer
+### Cache/src/util/LogBeanStorer
 Async business log save with JDK LinkedBlockingQueue.
 
